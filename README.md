@@ -50,8 +50,24 @@ pytest
 ```
 
 O `pyproject.toml` ja configura `--cov=app --cov-report=term-missing
---cov-fail-under=80`, entao o comando falha sozinho se a cobertura cair abaixo
-de 80%.
+--cov-report=html:coverage --cov-fail-under=80`, entao o comando falha sozinho
+se a cobertura cair abaixo de 80%.
+
+### Painel de cobertura
+
+Alem da tabela no terminal, o `pytest` gera um relatorio HTML navegavel em
+`coverage/index.html` — o equivalente ao relatorio do JaCoCo usado nos projetos
+em Java. Ele mostra o percentual por arquivo e, clicando em cada um, o codigo
+linha a linha em verde (coberto) e vermelho (nao coberto).
+
+```bash
+pytest
+open coverage/index.html      # no Linux: xdg-open coverage/index.html
+```
+
+O relatorio e versionado de proposito, para ficar visivel no repositorio. Ele e
+regerado a cada `pytest`, entao aparece como alteracao no `git status` sempre
+que os testes rodam.
 
 ## Buildando a imagem
 
