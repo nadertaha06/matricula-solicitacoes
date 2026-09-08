@@ -1,0 +1,9 @@
+[project]
+name = "matricula-solicitacoes"
+version = "0.1.0"
+description = "Servico de solicitacoes de matricula"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=app --cov-report=term-missing --cov-fail-under=80"

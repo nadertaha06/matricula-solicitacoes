@@ -1,0 +1,123 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Para adaptar este workflow a outro servico, mude apenas o bloco abaixo.
+env:
+  IMAGE: nadertaha06/matricula-solicitacoes
+  CONTAINER: matricula-solicitacoes
+  PORT: 8002
+  DB_NAME: solicitacoes_db
+
+jobs:
+  test:
+    name: Testes
+    runs-on: ubuntu-latest
+
+    # Infraestrutura real para os testes de integracao: um Postgres 16 de verdade,
+    # nao um mock. O job so comeca depois do healthcheck via pg_isready.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: solicitacoes_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: solicitacoes_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # O pyproject.toml ja reprova o job se a cobertura ficar abaixo de 80%.
+      - name: Rodar testes
+        run: pytest
+
+  deploy:
+    name: Build, push e deploy
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login no DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: nadertaha06
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Configurar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build e push da imagem
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+
+      - name: Deploy na EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST_TEST }}
+          username: ubuntu
+          key: ${{ secrets.KEY_TEST }}
+          port: 22
+          script: |
+            docker pull ${{ env.IMAGE }}:latest
+
+            # O "|| true" e obrigatorio: no primeiro deploy o container ainda nao
+            # existe, o docker stop/rm sai com erro e o ssh-action abortaria o
+            # script inteiro sem subir a aplicacao.
+            docker stop ${{ env.CONTAINER }} || true
+            docker rm ${{ env.CONTAINER }} || true
+
+            docker run -d \
+              --name ${{ env.CONTAINER }} \
+              --network rede \
+              --restart unless-stopped \
+              -p ${{ env.PORT }}:${{ env.PORT }} \
+              -e APP_NAME=${{ env.CONTAINER }} \
+              -e PORT=${{ env.PORT }} \
+              -e DB_HOST=postgres \
+              -e DB_PORT=5432 \
+              -e DB_NAME=${{ env.DB_NAME }} \
+              -e DB_USER=postgres \
+              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+              -e RABBITMQ_URL=${{ secrets.RABBITMQ_URL }} \
+              -e AUTH0_DOMAIN=${{ secrets.AUTH0_DOMAIN }} \
+              -e AUTH0_AUDIENCE=${{ secrets.AUTH0_AUDIENCE }} \
+              ${{ env.IMAGE }}:latest

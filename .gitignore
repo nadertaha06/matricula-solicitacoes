@@ -1,0 +1,17 @@
+# Ambiente
+.env
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Testes e cobertura
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Ferramentas locais / notas do agente (nunca versionar)
+.claude/
