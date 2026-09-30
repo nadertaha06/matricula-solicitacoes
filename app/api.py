@@ -20,7 +20,7 @@ def create_app(router, handler):
         if worker:
             worker.stop()
 
-    app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan,
+    app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan, root_path=settings.root_path,
         description="Etapa 2: ambiente academico de demonstracao. Auth0 previsto para a etapa 3.")
     app.include_router(router)
 

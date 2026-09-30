@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     db_user: str = "postgres"
     db_password: str = ""
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
+    root_path: str = ""
     worker_enabled: bool = True
     retry_delay_ms: int = 1000
     disciplinas_url: str = "http://matricula-disciplinas:8001"

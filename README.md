@@ -109,3 +109,9 @@ Os secrets antigos `DB_PASSWORD` e `RABBITMQ_URL` nao sao interpolados em comand
 Nesta etapa, a identidade de demonstracao e informada explicitamente; **Auth0 e autorizacao ainda nao estao implementados**, conforme a etapa 3 do enunciado.
 Nao use dados pessoais reais nesta demonstracao. A etapa 3 deve derivar aluno_id do JWT e proteger as rotas administrativas e internas.
 Prometheus/Grafana, gateway e testes de carga pertencem a etapa 4. Os relatorios de testes desta etapa medem qualidade do codigo; nao representam monitoramento de producao.
+
+## Acesso publico pela porta 8080
+
+Swagger: http://13.220.42.157:8080/solicitacoes/docs
+
+O proxy do repositorio de infraestrutura encaminha `/solicitacoes/` para este servico. Na EC2, `ROOT_PATH=/solicitacoes` mantem o OpenAPI e o Swagger usando o endereco publico correto. A porta interna 8002 continua sendo usada para comunicacao entre servicos.
