@@ -1,6 +1,7 @@
-fastapi
-uvicorn[standard]
-pydantic-settings
-pytest
-pytest-cov
-httpx
+fastapi==0.142.0
+uvicorn==0.54.0
+pydantic-settings==2.15.0
+SQLAlchemy==2.1.1
+psycopg[binary]==3.3.6
+pika==1.4.4
+httpx==0.28.1

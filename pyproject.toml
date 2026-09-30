@@ -1,9 +1,13 @@
 [project]
 name = "matricula-solicitacoes"
-version = "0.1.0"
-description = "Servico de solicitacoes de matricula"
+version = "0.2.0"
 requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=app --cov-report=term-missing --cov-report=html:coverage --cov-fail-under=80"
+addopts = "--strict-markers --cov=app --cov-branch --cov-report=term-missing --cov-report=html:coverage --cov-report=xml:coverage.xml --cov-report=json:coverage.json --cov-fail-under=80 --junitxml=reports/junit.xml"
+markers = ["integration: PostgreSQL ou RabbitMQ reais", "unit: regra isolada"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true

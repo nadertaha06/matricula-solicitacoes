@@ -1,136 +1,111 @@
 # matricula-solicitacoes
 
-Servico responsavel por receber e acompanhar as solicitacoes de matricula feitas pelos alunos.
+Solicitacoes de matricula, historico academico e historico das transicoes de estado.
 
-Este repositorio contem **apenas o esqueleto do servico**: aplicacao FastAPI com
-endpoints de identificacao e health, configuracao via variaveis de ambiente,
-testes, imagem Docker e pipeline de CI/CD. As regras de negocio, o modelo de
-dados, a conexao com o banco e o consumo de filas sao entregas posteriores.
+[![CI/CD](https://github.com/nadertaha06/matricula-solicitacoes/actions/workflows/deploy.yml/badge.svg)](https://github.com/nadertaha06/matricula-solicitacoes/actions/workflows/deploy.yml)
 
-| Item | Valor |
-| --- | --- |
-| Porta | `8002` |
-| Imagem Docker | `nadertaha06/matricula-solicitacoes` |
-| Container na EC2 | `matricula-solicitacoes` |
-| Banco de dados | `solicitacoes_db` |
-| Rede Docker | `rede` |
+Implementacao da **etapa 2** em Python 3.12, FastAPI, PostgreSQL e RabbitMQ.
+Este repositorio e um dos tres servicos independentes do sistema.
+
+## Executar a aplicacao completa
+
+Clone os quatro repositorios na mesma pasta e siga o [README da infraestrutura](https://github.com/nadertaha06/matricula-infra).
+O comando de demonstracao verifica os tres servicos por HTTP e acompanha os resultados produzidos pelo RabbitMQ:
+
+```sh
+python3 ../matricula-infra/scripts/smoke_e2e.py --host 127.0.0.1
+```
+
+Swagger: `http://localhost:8002/docs`. OpenAPI: `/openapi.json`.
+`GET /health` verifica o processo; `GET /ready` consulta o PostgreSQL.
+A prontidao HTTP nao substitui a verificacao da fila: o teste E2E cobre os workers.
 
 ## Endpoints
 
-| Metodo | Rota | Resposta |
-| --- | --- | --- |
-| `GET` | `/` | `{"service": "matricula-solicitacoes"}` |
-| `GET` | `/health` | `{"status": "ok", "service": "matricula-solicitacoes"}` |
+| Rota | Funcao |
+|---|---|
+| PUT /alunos/{id}/historico | Define disciplinas cursadas, coeficiente e periodo_aluno |
+| GET /alunos/{id}/historico | Consulta o registro academico |
+| POST /matriculas | Recebe aluno_id/turma_id, persiste e responde 202 |
+| GET /matriculas/me?aluno_id=... | Consulta as solicitacoes do aluno de demonstracao |
+| GET /matriculas/{id} | Consulta o estado atual |
+| GET /matriculas/{id}/historico | Consulta a trilha de estados |
+| DELETE /matriculas/{id} | Cancela e agenda a liberacao de vaga |
 
-Documentacao interativa gerada pelo FastAPI em `http://localhost:8002/docs`.
+Horarios usam `dia_semana` de 0 (segunda) a 6 (domingo), `inicio` e `fim` no formato `HH:MM`.
+Intervalos adjacentes nao conflitam, e o conflito de matricula se limita ao mesmo periodo letivo.
 
-## Rodando local
+## Testes e cobertura
 
-```bash
-python3.12 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+Instale as dependencias de desenvolvimento:
 
-cp .env.example .env      # ajuste os valores; o .env nao vai para o git
-
-uvicorn app.main:app --reload --port 8002
+```sh
+python3.12 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
 ```
 
-Conferindo:
+Para rodar a suite completa, use **PostgreSQL e RabbitMQ reais**, com banco e vhost exclusivos de teste:
 
-```bash
-curl http://localhost:8002/health
-# {"status":"ok","service":"matricula-solicitacoes"}
+```sh
+export DB_HOST=localhost DB_PORT=5432 DB_NAME=solicitacoes_test
+export DB_USER=postgres DB_PASSWORD=postgres
+export RABBITMQ_URL=amqp://tests:tests@localhost:5672/etapa2-tests
+export WORKER_ENABLED=false
+python -m pytest
 ```
 
-## Rodando os testes
+Os testes se recusam a limpar bancos cujo nome nao termina em `_test` ou filas fora de um vhost de teste.
+A infraestrutura de teste reproduzivel esta em `matricula-infra/compose.test.yml`.
+Os testes de regras isoladas podem ser executados com `python -m pytest -m unit -o addopts=''`.
 
-```bash
-pytest
-```
+O `pytest-cov` usa o motor [coverage.py](https://coverage.readthedocs.io/) para medir linhas **e branches**.
+Essa e a funcao equivalente a cobertura oferecida pelo JaCoCo para Java; nao e um painel simulado.
+O limite de **80% por servico** e aplicado por `--cov-fail-under=80` e bloqueia o deploy quando descumprido.
+Nenhum modulo de `app/` e retirado da medicao.
 
-O `pyproject.toml` ja configura `--cov=app --cov-report=term-missing
---cov-report=html:coverage --cov-fail-under=80`, entao o comando falha sozinho
-se a cobertura cair abaixo de 80%.
+Saidas geradas:
 
-### Painel de cobertura
+- `coverage/index.html`: relatorio oficial navegavel por arquivo e linha.
+- `coverage.xml` e `coverage.json`: dados legiveis por ferramentas e pelo CI.
+- `reports/junit.xml`: resultados dos testes executados.
 
-Alem da tabela no terminal, o `pytest` gera um relatorio HTML navegavel em
-`coverage/index.html` — o equivalente ao relatorio do JaCoCo usado nos projetos
-em Java. Ele mostra o percentual por arquivo e, clicando em cada um, o codigo
-linha a linha em verde (coberto) e vermelho (nao coberto).
+Esses arquivos nao sao versionados. Em **Actions > execucao > Summary** ha a tabela medida; o artefato `testes-solicitacoes-<SHA>` contem HTML/XML/JSON/JUnit por 30 dias. Baixe e abra `coverage/index.html`.
+O numero de testes e o percentual do resumo sao calculados dos arquivos de saida, sem valores fixos no codigo.
 
-```bash
-pytest
-open coverage/index.html      # no Linux: xdg-open coverage/index.html
-```
+## Garantias e limites
 
-O relatorio e versionado de proposito, para ficar visivel no repositorio. Ele e
-regerado a cada `pytest`, entao aparece como alteracao no `git status` sempre
-que os testes rodam.
+Cada servico acessa somente seu proprio banco (`solicitacoes_db`).
+As alteracoes de negocio e os eventos pendentes sao gravados na mesma transacao (outbox).
+O worker reutiliza uma conexao RabbitMQ, publica com confirmacao, consome com ACK apos commit e registra `evento_id` (inbox).
+As filas sao duraveis, e mensagens usam persistencia. Falhas de consumo passam por uma fila de retentativa temporizada por consumidor e, na terceira falha, chegam a `matriculas.dlq`.
+A entrega e **at least once**: idempotencia e revisao de resultado protegem contra repeticao e reordenacao.
+Apos resolver uma falha enviada a DLQ, a mensagem deve ser inspecionada e republicada pelo operador; nao ha descarte silencioso.
 
-## Buildando a imagem
+A reserva bloqueia a turma para evitar exceder capacidade e bloqueia o aluno para impedir reservas simultaneas em horarios conflitantes.
+Cancelamento e assincrono: o estado muda para CANCELADA antes da liberacao efetiva; acompanhe a fila ou o teste E2E para confirmar a devolucao.
+A lista de espera e ordenada por coeficiente ou periodo decrescente, ou por chegada crescente, com desempate por data e identificador.
+O criterio vale para **candidatos em espera**, sem desfazer vagas ja concedidas. A posicao atual vem de `/lista-espera`, nao de um valor desatualizado no evento.
+Cada promocao processa um candidato; eventos `lista.reavaliar` continuam o trabalho sem vincular o sucesso a uma chamada posterior.
 
-```bash
-docker build -t nadertaha06/matricula-solicitacoes:latest .
+Strategy e Factory estao em `matricula-processamento/app/strategies.py`.
+O Singleton de configuracao/engine usa `lru_cache`; a conexao do broker pertence ao ciclo de vida do worker.
+O schema inicial e criado de forma idempotente com SQLAlchemy; futuras alteracoes de schema devem receber migracoes explicitas.
 
-docker run --rm -p 8002:8002 --env-file .env \
-  nadertaha06/matricula-solicitacoes:latest
-```
+## CI/CD e configuracao
 
-Para rodar junto da infraestrutura do repositorio `matricula-infra`, suba o
-container na mesma rede:
+Cada push na `main` ou PR executa a suite com PostgreSQL/RabbitMQ reais. PR nao faz deploy.
+Apos aprovacao dos testes na `main`, o CI publica no DockerHub e atualiza a EC2 usando a tag SHA.
+`scripts/deploy.sh` serializa deploys na EC2, verifica `/ready` e restaura a imagem anterior se a nova falhar.
 
-```bash
-docker run -d --name matricula-solicitacoes --network rede --restart unless-stopped \
-  -p 8002:8002 --env-file .env \
-  nadertaha06/matricula-solicitacoes:latest
-```
+Secrets usados no CI: `DOCKERHUB_TOKEN`, `HOST_TEST`, `KEY_TEST`.
+Variavel usada: `EC2_HOST_KEY`, chave publica SSH do servidor (pinning).
+A configuracao do container vem de `~/.config/matricula/matricula-solicitacoes.env`, com permissao 600 na EC2.
+Os secrets antigos `DB_PASSWORD` e `RABBITMQ_URL` nao sao interpolados em comandos shell pelo workflow.
+`.env.example` documenta as variaveis da aplicacao.
 
-## Variaveis de ambiente
+## Escopo academico
 
-Todas sao lidas por `app/config.py` (`Settings` do `pydantic-settings`).
-Veja `.env.example` para um modelo preenchido com valores de exemplo.
-
-| Variavel | Descricao | Exemplo |
-| --- | --- | --- |
-| `APP_NAME` | Nome do servico, devolvido em `/` e `/health` | `matricula-solicitacoes` |
-| `PORT` | Porta em que o uvicorn escuta | `8002` |
-| `DB_HOST` | Host do Postgres. Na EC2 e o `container_name` definido no `matricula-infra` | `postgres` |
-| `DB_PORT` | Porta do Postgres | `5432` |
-| `DB_NAME` | Banco usado por este servico | `solicitacoes_db` |
-| `DB_USER` | Usuario do Postgres | `postgres` |
-| `DB_PASSWORD` | Senha do Postgres. Vem do secret `DB_PASSWORD` | *(secret)* |
-| `RABBITMQ_URL` | URL AMQP do RabbitMQ. Vem do secret `RABBITMQ_URL` | `amqp://usuario:senha@rabbitmq:5672/` |
-| `AUTH0_DOMAIN` | Dominio do tenant Auth0. Vem do secret `AUTH0_DOMAIN` | `seu-tenant.us.auth0.com` |
-| `AUTH0_AUDIENCE` | Audience da API no Auth0. Vem do secret `AUTH0_AUDIENCE` | `https://api.matricula.exemplo` |
-
-`get_settings()` e decorada com `@lru_cache`, o que implementa o padrao
-**Singleton**: a instancia de `Settings` e construida uma unica vez por processo.
-
-## CI/CD
-
-`.github/workflows/deploy.yml` tem dois jobs:
-
-- **test** — roda em `push` na `main` e em `pull_request`. Sobe um `postgres:16`
-  real pelo bloco `services:` do GitHub Actions (healthcheck com `pg_isready`),
-  instala as dependencias e roda o `pytest` com o corte de cobertura.
-- **deploy** — depende do `test` (`needs`) e roda **somente** em `push` na
-  `main`. Faz login no DockerHub, builda e publica a imagem com as tags
-  `${{ github.sha }}` e `latest`, e entao conecta por SSH na EC2 para trocar o
-  container.
-
-Para adaptar o workflow a outro servico basta editar o bloco `env:` do topo do
-arquivo (`IMAGE`, `CONTAINER`, `PORT`, `DB_NAME`).
-
-### Secrets necessarios neste repositorio
-
-| Secret | Para que serve |
-| --- | --- |
-| `DOCKERHUB_TOKEN` | Access token do DockerHub do usuario `nadertaha06` |
-| `HOST_TEST` | IP ou DNS publico da EC2 |
-| `KEY_TEST` | Chave SSH privada do usuario `ubuntu` |
-| `DB_PASSWORD` | Senha do Postgres, igual a do `matricula-infra` |
-| `RABBITMQ_URL` | URL AMQP completa do RabbitMQ |
-| `AUTH0_DOMAIN` | Dominio do tenant Auth0 |
-| `AUTH0_AUDIENCE` | Audience da API no Auth0 |
+Nesta etapa, a identidade de demonstracao e informada explicitamente; **Auth0 e autorizacao ainda nao estao implementados**, conforme a etapa 3 do enunciado.
+Nao use dados pessoais reais nesta demonstracao. A etapa 3 deve derivar aluno_id do JWT e proteger as rotas administrativas e internas.
+Prometheus/Grafana, gateway e testes de carga pertencem a etapa 4. Os relatorios de testes desta etapa medem qualidade do codigo; nao representam monitoramento de producao.

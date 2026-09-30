@@ -18,3 +18,8 @@ htmlcov/
 .venv/
 venv/
 coverage/
+
+.Codex/
+docs/superpowers/
+reports/
+*.pem

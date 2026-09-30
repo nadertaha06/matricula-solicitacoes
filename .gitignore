@@ -15,3 +15,11 @@ htmlcov/
 
 # Ferramentas locais / notas do agente (nunca versionar)
 .claude/
+
+# Artefatos locais e notas de implementação
+.Codex/
+docs/superpowers/
+coverage/
+coverage.json
+reports/
+*.pem
