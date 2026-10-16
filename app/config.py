@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     criterio_desempate: str = "coeficiente"
     auth0_domain: str = ""
     auth0_audience: str = ""
+    internal_api_token: str = ""
 
     @property
     def database_url(self):

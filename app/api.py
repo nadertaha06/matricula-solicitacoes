@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import init_db, get_engine
 from app.worker import Worker
+from app.auth import get_principal
 
 
 def create_app(router, handler):
@@ -20,9 +21,13 @@ def create_app(router, handler):
         if worker:
             worker.stop()
 
-    app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan, root_path=settings.root_path,
-        description="Etapa 2: ambiente academico de demonstracao. Auth0 previsto para a etapa 3.")
+    app = FastAPI(title=settings.app_name, version="0.3.0", lifespan=lifespan, root_path=settings.root_path,
+        description="Portal de matricula com autenticacao Auth0 e permissoes por operacao.")
     app.include_router(router)
+
+    @app.get("/session")
+    def session_info(principal=Depends(get_principal)):
+        return {"sub": principal.sub, "permissions": sorted(principal.permissions)}
 
     @app.get("/")
     def root():

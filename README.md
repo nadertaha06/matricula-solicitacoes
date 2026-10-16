@@ -106,8 +106,8 @@ Os secrets antigos `DB_PASSWORD` e `RABBITMQ_URL` nao sao interpolados em comand
 
 ## Escopo academico
 
-Nesta etapa, a identidade de demonstracao e informada explicitamente; **Auth0 e autorizacao ainda nao estao implementados**, conforme a etapa 3 do enunciado.
-Nao use dados pessoais reais nesta demonstracao. A etapa 3 deve derivar aluno_id do JWT e proteger as rotas administrativas e internas.
+As rotas de negócio exigem access token Auth0 RS256. Configure AUTH0_DOMAIN e AUTH0_AUDIENCE; a API valida assinatura, emissor, audiência, expiração e identidade. Health/readiness permanecem públicos.
+O aluno é identificado pelo sub do JWT. As quatro permissões manage:oferta, manage:historicos, manage:matriculas e manage:processamento protegem as operações administrativas. INTERNAL_API_TOKEN, privado e com ao menos 32 caracteres, protege leituras e reservas internas. Testes antigos usam overrides de dependências apenas nas fixtures; produção não possui bypass de autenticação.
 Prometheus/Grafana, gateway e testes de carga pertencem a etapa 4. Os relatorios de testes desta etapa medem qualidade do codigo; nao representam monitoramento de producao.
 
 ## Acesso publico pela porta 8080
@@ -115,3 +115,7 @@ Prometheus/Grafana, gateway e testes de carga pertencem a etapa 4. Os relatorios
 Swagger: http://13.220.42.157:8080/api/solicitacoes/docs
 
 O proxy do repositorio de infraestrutura encaminha `/api/solicitacoes/` para este servico. Na EC2, `ROOT_PATH=/api/solicitacoes` mantem o OpenAPI e o Swagger usando o endereco publico correto. A porta interna 8002 continua sendo usada para comunicacao entre servicos.
+
+## Execução da etapa 3
+
+As chamadas de negócio nos exemplos acima agora precisam de `Authorization: Bearer <access-token>`. Use o portal `http://localhost:5173` para login e operações. Os arquivos privados de runtime podem ser gerados pelo `matricula-infra/scripts/configure.py`. Não use o Client Secret da SPA. Reserve o header `X-Service-Token` para o cliente interno de processamento. O gateway remove esse header das requisições externas.

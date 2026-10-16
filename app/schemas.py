@@ -18,5 +18,5 @@ class HistoricoInput(BaseModel):
 
 
 class SolicitacaoInput(BaseModel):
-    aluno_id: Identificador
+    aluno_id: Identificador | None = None
     turma_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=36)]

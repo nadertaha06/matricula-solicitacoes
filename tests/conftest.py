@@ -28,3 +28,17 @@ def clean_database(request):
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def legacy_test_identity(request):
+    if request.path.name in {'test_auth.py', 'test_access.py'}:
+        yield
+        return
+    from app.auth import Principal, get_principal, require_internal
+    app.dependency_overrides[get_principal] = lambda: Principal('test-admin', frozenset({
+        'manage:oferta', 'manage:historicos', 'manage:matriculas', 'manage:processamento'}))
+    app.dependency_overrides[require_internal] = lambda: Principal('worker', frozenset(), True)
+    yield
+    app.dependency_overrides.pop(get_principal, None)
+    app.dependency_overrides.pop(require_internal, None)
