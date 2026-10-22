@@ -6,6 +6,7 @@ from app.config import get_settings
 from app.db import init_db, get_engine
 from app.worker import Worker
 from app.auth import get_principal
+from app.metrics import MetricasHTTP, resposta_metricas
 
 
 def create_app(router, handler):
@@ -23,7 +24,13 @@ def create_app(router, handler):
 
     app = FastAPI(title=settings.app_name, version="0.3.0", lifespan=lifespan, root_path=settings.root_path,
         description="Portal de matricula com autenticacao Auth0 e permissoes por operacao.")
+    app.add_middleware(MetricasHTTP)
     app.include_router(router)
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics():
+        # Public gateway blocks /metrics; Prometheus scrapes it over the internal Docker network.
+        return resposta_metricas()
 
     @app.get("/session")
     def session_info(principal=Depends(get_principal)):

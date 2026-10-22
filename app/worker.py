@@ -4,10 +4,11 @@ import logging
 from threading import Event, Thread
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
-from app.broker import Broker, BINDINGS
+from app.broker import Broker, BINDINGS, DLQ
 from app.config import get_settings
 from app.db import get_engine
 from app.events import Outbox, Inbox
+from app.metrics import MENSAGENS_CONSUMIDAS, MENSAGENS_PUBLICADAS, WORKER_CONECTADO
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,11 @@ def flush_outbox(broker):
         event = session.scalar(select(Outbox).order_by(Outbox.created_at).with_for_update(skip_locked=True).limit(1))
         if event is None:
             return False
-        broker.publish(event.topic, event.payload)
+        topico = event.topic
+        broker.publish(topico, event.payload)
         session.delete(event)
+    # Counted only after the broker confirm and the commit that removes the outbox row.
+    MENSAGENS_PUBLICADAS.labels(topico=topico).inc()
     return True
 
 
@@ -39,13 +43,16 @@ def consume_one(broker, handler):
         with Session(get_engine()) as session, session.begin():
             # Serialize domain evaluations, including duplicate delivery, across workers.
             session.execute(text("SELECT pg_advisory_xact_lock(220926)"))
-            if session.get(Inbox, event_id) is None:
+            duplicada = session.get(Inbox, event_id) is not None
+            if not duplicada:
                 handler(session, topic, payload)
                 session.add(Inbox(id=event_id))
         broker.channel.basic_ack(method.delivery_tag)
+        resultado = "duplicada" if duplicada else "processada"
     except Exception:
         logger.exception("Falha no consumo; nova tentativa ou DLQ")
-        broker.retry(queue, method, properties, body)
+        resultado = "dlq" if broker.retry(queue, method, properties, body) == DLQ else "retentativa"
+    MENSAGENS_CONSUMIDAS.labels(fila=queue, resultado=resultado).inc()
     return True
 
 
@@ -67,6 +74,7 @@ class Worker:
             broker = None
             try:
                 broker = Broker()
+                WORKER_CONECTADO.set(1)
                 while not self.stop_event.is_set():
                     published = flush_outbox(broker)
                     consumed = consume_one(broker, self.handler)
@@ -75,10 +83,12 @@ class Worker:
                         self.stop_event.wait(0.2)
             except Exception:
                 logger.exception("Worker indisponivel; reconectando")
-                self.stop_event.wait(2)
             finally:
+                WORKER_CONECTADO.set(0)
                 if broker is not None:
                     try:
                         broker.close()
                     except Exception:
                         logger.exception("Erro ao fechar broker")
+            # The inner loop only ends on failure or stop; after stop this returns at once.
+            self.stop_event.wait(2)

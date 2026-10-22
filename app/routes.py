@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from prometheus_client import Counter
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from app.db import session_scope
@@ -10,6 +11,10 @@ from app.schemas import HistoricoInput, SolicitacaoInput
 from app.auth import Principal, get_principal, require_permission, require_internal, check_owner
 
 router = APIRouter(dependencies=[Depends(get_principal)])
+
+# Counted after COMMIT; idempotent repetitions are not counted again.
+MATRICULAS_SOLICITADAS = Counter('matriculas_solicitadas_total', 'Novas solicitacoes de matricula aceitas.')
+MATRICULAS_CANCELADAS = Counter('matriculas_canceladas_total', 'Solicitacoes de matricula canceladas.')
 
 
 def view(s):
@@ -61,6 +66,7 @@ def solicitar(data: SolicitacaoInput, session: Session = Depends(session_scope),
     emit(session, 'matricula.solicitada', {'solicitacao_id':solicitacao.id, **data.model_dump(),
         'coeficiente':aluno.coeficiente,'periodo_aluno':aluno.periodo_aluno,'solicitado_em':solicitacao.solicitado_em.isoformat()})
     session.commit()
+    MATRICULAS_SOLICITADAS.inc()
     return view(solicitacao)
 
 
@@ -109,4 +115,5 @@ def cancelar(solicitacao_id: str, session: Session = Depends(session_scope), pri
     session.add(HistoricoStatus(solicitacao_id=s.id, status='CANCELADA'))
     emit(session, 'matricula.cancelada', {'solicitacao_id':s.id,'turma_id':s.turma_id,'aluno_id':s.aluno_id})
     session.commit()
+    MATRICULAS_CANCELADAS.inc()
     return view(s)

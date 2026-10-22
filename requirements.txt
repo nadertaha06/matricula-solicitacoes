@@ -6,3 +6,4 @@ psycopg[binary]==3.3.6
 pika==1.4.4
 httpx==0.28.1
 PyJWT[crypto]==2.15.1
+prometheus-client==0.26.0

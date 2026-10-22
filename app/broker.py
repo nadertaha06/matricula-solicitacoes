@@ -3,6 +3,7 @@ import json
 import pika
 from app.config import get_settings
 
+DLQ = "matriculas.dlq"
 BINDINGS = {
     "processamento": ("matricula.solicitada", "matricula.cancelada", "vaga.liberada", "lista.reavaliar"),
     "solicitacoes": ("matricula.avaliada",),
@@ -18,7 +19,7 @@ class Broker:
         self.connection = pika.BlockingConnection(params)
         self.channel = self.connection.channel()
         self.channel.exchange_declare(exchange="matriculas", exchange_type="topic", durable=True)
-        self.channel.queue_declare(queue="matriculas.dlq", durable=True)
+        self.channel.queue_declare(queue=DLQ, durable=True)
         for name, topics in BINDINGS.items():
             queue = "matriculas." + name
             self.channel.queue_declare(queue=queue, durable=True)
@@ -45,10 +46,11 @@ class Broker:
         attempts = int(headers.get("tentativas", 0)) + 1
         headers["tentativas"] = attempts
         headers["original_topic"] = headers.get("original_topic", method.routing_key)
-        destination = "matriculas.dlq" if attempts >= 3 else queue + ".retry"
+        destination = DLQ if attempts >= 3 else queue + ".retry"
         self.channel.basic_publish(exchange="", routing_key=destination, body=body, mandatory=True,
             properties=pika.BasicProperties(delivery_mode=2, content_type="application/json", headers=headers))
         self.channel.basic_ack(method.delivery_tag)
+        return destination
 
     def close(self):
         if self.connection.is_open:

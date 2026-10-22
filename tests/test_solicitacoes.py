@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 from app.main import app
 
 pytestmark = pytest.mark.integration
@@ -132,3 +133,47 @@ def test_atualizacao_da_espera_nao_cria_transicao_duplicada(client):
     aplicar(sid, 'EM_ESPERA', 2)
     assert client.get(f'/matriculas/{sid}').json()['revisao'] == 2
     assert [x['status'] for x in client.get(f'/matriculas/{sid}/historico').json()] == ['SOLICITADA','EM_ESPERA']
+
+
+def valor(nome, **labels):
+    return REGISTRY.get_sample_value(nome, labels) or 0.0
+
+
+def test_metricas_de_solicitacao_e_cancelamento(client):
+    solicitadas = valor('matriculas_solicitadas_total')
+    canceladas = valor('matriculas_canceladas_total')
+    sid = client.post('/matriculas', json={'aluno_id':'a','turma_id':'t'}).json()['id']
+    assert client.post('/matriculas', json={'aluno_id':'a','turma_id':'t'}).json()['id'] == sid  # idempotent
+    assert valor('matriculas_solicitadas_total') - solicitadas == 1
+    assert client.delete(f'/matriculas/{sid}').json()['status'] == 'CANCELADA'
+    assert client.delete(f'/matriculas/{sid}').json()['status'] == 'CANCELADA'  # already canceled
+    assert valor('matriculas_canceladas_total') - canceladas == 1
+    texto = client.get('/metrics').text
+    for nome in ('matriculas_solicitadas_total', 'matriculas_canceladas_total', 'matriculas_avaliadas_total{estado="em_espera"}'):
+        assert nome in texto
+
+
+def test_metricas_de_avaliacao_aplicada(client):
+    estados = ('deferida', 'indeferida', 'em_espera')
+    antes = {e: valor('matriculas_avaliadas_total', estado=e) for e in estados}
+    sid = client.post('/matriculas', json={'aluno_id':'a','turma_id':'t'}).json()['id']
+    aplicar(sid, 'EM_ESPERA', 1)
+    aplicar(sid, 'EM_ESPERA', 2)   # same state, new reason: no transition
+    aplicar(sid, 'DEFERIDA', 3)
+    aplicar(sid, 'EM_ESPERA', 2)   # out of order: ignored
+    outro = client.post('/matriculas', json={'aluno_id':'b','turma_id':'t'}).json()['id']
+    aplicar(outro, 'INDEFERIDA')
+    assert {e: valor('matriculas_avaliadas_total', estado=e) - antes[e] for e in estados} == dict.fromkeys(estados, 1)
+
+
+def test_avaliacao_desfeita_nao_conta(client):
+    from sqlalchemy.orm import Session
+    from app.db import get_engine
+    from app.handlers import handle_event
+    sid = client.post('/matriculas', json={'aluno_id':'a','turma_id':'t'}).json()['id']
+    antes = valor('matriculas_avaliadas_total', estado='deferida')
+    with Session(get_engine()) as s:
+        handle_event(s, 'matricula.avaliada', {'solicitacao_id':sid, 'resultado':'DEFERIDA', 'revisao':1})
+        s.rollback()
+    assert valor('matriculas_avaliadas_total', estado='deferida') == antes
+    assert client.get(f'/matriculas/{sid}').json()['status'] == 'SOLICITADA'

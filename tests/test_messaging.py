@@ -3,6 +3,7 @@ import time
 from uuid import uuid4
 import pytest
 import pika
+from prometheus_client import REGISTRY
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from app.broker import Broker, BINDINGS
@@ -12,6 +13,10 @@ from app.events import emit, Outbox, Inbox
 from app.worker import Worker, flush_outbox, consume_one
 
 pytestmark = pytest.mark.integration
+
+
+def valor(nome, **labels):
+    return REGISTRY.get_sample_value(nome, labels) or 0.0
 
 
 @pytest.fixture
@@ -29,10 +34,12 @@ def broker():
 
 
 def test_outbox_publica_no_broker_real(broker):
+    publicadas = valor("mensagens_publicadas_total", topico="matricula.solicitada")
     with Session(get_engine()) as s, s.begin():
         eid = emit(s, "matricula.solicitada", {"solicitacao_id":"s1"})
     assert flush_outbox(broker)
     assert not flush_outbox(broker)
+    assert valor("mensagens_publicadas_total", topico="matricula.solicitada") - publicadas == 1
     method, _, body = broker.receive("matriculas.processamento")
     assert json.loads(body)["evento_id"] == eid
     broker.channel.basic_ack(method.delivery_tag)
@@ -51,6 +58,8 @@ def test_rollback_nao_publica_evento(broker):
 
 def test_inbox_descarta_duplicata(broker, monkeypatch):
     monkeypatch.setattr(get_settings(), "app_name", "matricula-solicitacoes")
+    fila = "matriculas.solicitacoes"
+    antes = {r: valor("mensagens_consumidas_total", fila=fila, resultado=r) for r in ("processada", "duplicada")}
     eid = str(uuid4())
     payload = {"evento_id":eid}
     for _ in range(2):
@@ -63,12 +72,16 @@ def test_inbox_descarta_duplicata(broker, monkeypatch):
     with Session(get_engine()) as s:
         assert s.get(Inbox, eid) is not None
         assert s.scalar(select(func.count()).select_from(Outbox)) == 1
+    for resultado in ("processada", "duplicada"):
+        assert valor("mensagens_consumidas_total", fila=fila, resultado=resultado) - antes[resultado] == 1
     monkeypatch.setattr(get_settings(), "app_name", "matricula-disciplinas")
     assert not consume_one(broker, handler)
 
 
 def test_mensagem_invalida_chega_na_dlq_apos_tres_tentativas(broker, monkeypatch):
     monkeypatch.setattr(get_settings(), "app_name", "matricula-solicitacoes")
+    fila = "matriculas.solicitacoes"
+    antes = {r: valor("mensagens_consumidas_total", fila=fila, resultado=r) for r in ("retentativa", "dlq")}
     broker.publish("matricula.avaliada", {"evento_id":""})
     deadline = time.monotonic() + 12
     delivered = 0
@@ -81,6 +94,8 @@ def test_mensagem_invalida_chega_na_dlq_apos_tres_tentativas(broker, monkeypatch
             assert properties.headers["original_topic"] == "matricula.avaliada"
             assert json.loads(body) == {"evento_id":""}
             broker.channel.basic_ack(method.delivery_tag)
+            assert valor("mensagens_consumidas_total", fila=fila, resultado="retentativa") - antes["retentativa"] == 2
+            assert valor("mensagens_consumidas_total", fila=fila, resultado="dlq") - antes["dlq"] == 1
             return
         time.sleep(.1)
     pytest.fail("Mensagem nao chegou a DLQ")
@@ -99,6 +114,7 @@ def test_worker_publica_pendente_e_encerra(broker, monkeypatch):
             if method:
                 assert json.loads(body)["evento_id"] == eid
                 broker.channel.basic_ack(method.delivery_tag)
+                assert valor("worker_conectado") == 1
                 break
             time.sleep(.1)
         else:
@@ -106,6 +122,7 @@ def test_worker_publica_pendente_e_encerra(broker, monkeypatch):
     finally:
         worker.stop()
     assert not worker.thread.is_alive()
+    assert valor("worker_conectado") == 0
 
 
 def test_indisponibilidade_preserva_outbox(monkeypatch):
@@ -115,6 +132,7 @@ def test_indisponibilidade_preserva_outbox(monkeypatch):
     worker = Worker(None)
     worker.start()
     time.sleep(.2)
+    assert valor("worker_conectado") == 0
     worker.stop()
     with Session(get_engine()) as s:
         assert s.scalar(select(func.count()).select_from(Outbox)) == 1

@@ -1,6 +1,13 @@
+from prometheus_client import Counter
 from sqlalchemy import select
 from app.domain import validar_transicao
+from app.metrics import apos_commit
 from app.models import Solicitacao, HistoricoStatus
+
+MATRICULAS_AVALIADAS = Counter('matriculas_avaliadas_total',
+    'Resultados de avaliacao aplicados como novo estado da solicitacao.', ('estado',))
+for _estado in ('deferida', 'indeferida', 'em_espera'):
+    MATRICULAS_AVALIADAS.labels(estado=_estado)
 
 
 def handle_event(session, topic, payload):
@@ -26,3 +33,5 @@ def handle_event(session, topic, payload):
     solicitacao.motivo = payload.get('motivo')
     solicitacao.revisao = revisao
     session.add(HistoricoStatus(solicitacao_id=solicitacao.id, status=resultado, motivo=solicitacao.motivo))
+    # The consumer commits after this handler returns (worker.consume_one).
+    apos_commit(session, MATRICULAS_AVALIADAS.labels(estado=resultado.lower()).inc)

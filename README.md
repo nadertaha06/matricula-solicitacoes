@@ -35,6 +35,32 @@ A prontidao HTTP nao substitui a verificacao da fila: o teste E2E cobre os worke
 Horarios usam `dia_semana` de 0 (segunda) a 6 (domingo), `inicio` e `fim` no formato `HH:MM`.
 Intervalos adjacentes nao conflitam, e o conflito de matricula se limita ao mesmo periodo letivo.
 
+## Métricas
+
+`GET /metrics` expoe as metricas no formato Prometheus, sem autenticacao e fora do OpenAPI.
+O gateway publico bloqueia esse caminho; o Prometheus coleta pela rede Docker interna (`http://matricula-solicitacoes:8002/metrics`).
+
+Comuns aos tres servicos (`app/metrics.py`):
+
+| Metrica | Tipo | Labels |
+|---|---|---|
+| `http_requests_total` | counter | `method`, `route` (template da rota ou `nao_mapeada`), `status` |
+| `http_request_duration_seconds` | histogram | `method`, `route` |
+| `http_requests_em_andamento` | gauge | - |
+| `mensagens_consumidas_total` | counter | `fila`, `resultado`: `processada`, `duplicada`, `retentativa`, `dlq` |
+| `mensagens_publicadas_total` | counter | `topico` (publicacao confirmada do outbox) |
+| `worker_conectado` | gauge | - (1 com conexao aberta ao RabbitMQ) |
+
+Deste servico:
+
+| Metrica | Tipo | Labels |
+|---|---|---|
+| `matriculas_solicitadas_total` | counter | - (somente solicitacao nova; repeticao idempotente nao conta) |
+| `matriculas_canceladas_total` | counter | - |
+| `matriculas_avaliadas_total` | counter | `estado`: `deferida`, `indeferida`, `em_espera` |
+
+Todas sao contadas apos o commit. `matriculas_avaliadas_total` conta o resultado consumido que muda o estado da solicitacao (mesma regra do historico de status); resultados antigos, para solicitacoes canceladas ou que so atualizam o motivo nao contam.
+
 ## Testes e cobertura
 
 Instale as dependencias de desenvolvimento:
